@@ -1,6 +1,6 @@
 # InkBridge
 
-> Fork of [dagaza/InkBridge](https://github.com/dagaza/InkBridge). Installation, build instructions, Qt 6 compatibility, and USB screen mirroring modified on 2026-10-10. Original copyright and component license notices are preserved.
+> Fork of [dagaza/InkBridge](https://github.com/dagaza/InkBridge). Installation, build instructions, Qt 6 compatibility, USB screen mirroring, and tablet-local pinch zoom modified on 2026-10-10. Original copyright and component license notices are preserved.
 
 **The high-performance bridge between your Android device and your Linux desktop.**
 
@@ -27,6 +27,7 @@ Engineered for near-zero latency and professional-grade control, InkBridge offer
 * **Universal Input:** Supports S-Pen (Pressure/Tilt), capacitive styluses, and multi-touch finger input.
 * **USB Wired Connection:** Uses the **Android Open Accessory (AOA)** protocol for near-zero latency input.
 * **USB Screen Mirroring:** Show one existing Linux monitor on Android while drawing with real pen pressure, using portal-approved capture and native H.264 decoding.
+* **Tablet-local Zoom:** Pinch and pan the USB mirror with two fingers (1–8×), while pen coordinates stay aligned with the unchanged desktop.
 * **Professional-Grade Input Support:**
     * **Logarithmic Pressure Curve:** Custom-tuned math for natural, responsive strokes (4096 levels).
     * **True 3D Tilt:** Projects Android sensor data to standard Linux EV_ABS tilt axes (-90° to +90°).
@@ -118,6 +119,8 @@ Install both updated desktop and Android builds. Video and pen input travel in o
 3. Start with **720p / 30 fps**, click **Mirror via USB**, and approve sharing the same monitor in the system dialog. Monitor geometry is matched automatically when the portal supplies position and size; otherwise the selected input mapping is retained, so select the same monitor in both places.
 4. Open your drawing application on that monitor. Android shows the mirrored image with its aspect ratio preserved, and pen coordinates are normalized inside the image rather than the surrounding black bars.
    The Android app retains its existing landscape orientation when the tablet is turned; the desktop image is not rotated into portrait.
+   Spread or pinch two fingers to zoom in or out (1–8×); move both fingers together to pan. Fingers navigate only while mirroring, even in stylus-only mode, and never draw or click on the PC. Pen and eraser input, including hover, pressure, tilt, and batched samples, stays aligned with the transformed image. Navigation is suspended during pen contact to avoid palm-induced viewport movement; lift all fingers before starting another gesture.
+   Pinch back to 1× to see the whole monitor. Stopping sharing, changing video resolution, resizing the view, or reconnecting resets zoom. This enlarges the received video rather than requesting a higher-resolution capture; select **1080p / 30 fps** for more source detail.
 5. **Stop Sharing** stops capture and video without disconnecting pen input. Unplugging the cable closes the session; reconnect and approve screen sharing again when needed.
 
 The presets bound the video to 1280x720 at 30/60 fps or 1920x1080 at 30 fps; portrait and other aspect ratios use smaller dimensions without stretching. The current desktop encoder is software OpenH264. Android uses its native H.264 decoder and enables low-latency decoding when supported. Actual frame rate and delay depend on the devices and must be measured; 60 fps is a ceiling, not a guarantee.
@@ -130,9 +133,9 @@ Screen capture uses the desktop ScreenCast portal and PipeWire, including on Way
 ```bash
 ctest --test-dir inkbridge-desktop/build --output-on-failure
 cd inkbridge-android
-./gradlew :app:testDebugUnitTest --tests com.inkbridge.UsbVideoProtocolTest --console=plain
+./gradlew :app:testDebugUnitTest --tests com.inkbridge.UsbVideoProtocolTest --tests com.inkbridge.VideoTransformTest --console=plain
 ```
-The desktop checks exercise the real OpenH264 pipeline for all presets, capability negotiation, wire framing, queue recovery, and isolated D-Bus portal permission/cancellation handling. Android tests check the same framing fixture, fragmented USB reads, unsupported accessory `available()` calls, input bounds, AVC configuration, and Xiaomi-sized aspect-ratio fitting. Live video, pen alignment, pressure, and stop/reconnect behavior were also verified on a Xiaomi Pad 5; remaining hardware checks and limitations are listed in the documentation below.
+The desktop checks exercise the real OpenH264 pipeline for all presets, capability negotiation, wire framing, queue recovery, and isolated D-Bus portal permission/cancellation handling. Android unit tests check the same framing fixture, fragmented USB reads, unsupported accessory `available()` calls, input bounds, AVC configuration, aspect-ratio fitting, focal-point zoom, pan limits, and geometry resets. Device-side zoom/input checks are in `UsbMirrorZoomTest`. Live video, pen alignment, pressure, and stop/reconnect behavior were verified on a Xiaomi Pad 5; the user also confirmed tablet-local zoom, panning, and drawing. Hardware checks and limitations are listed in the documentation below.
 
 The wire format and hardware verification checklist are documented in [docs/usb-screen-mirroring.md](docs/usb-screen-mirroring.md).
 
