@@ -35,6 +35,18 @@ endif()
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(LIBUSB REQUIRED libusb-1.0)
 
+set(PROJECT_RESOURCES assets.qrc)
+if(Qt6_FOUND)
+    foreach(QML_FILE IN ITEMS Main.qml OnboardingTutorial.qml)
+        configure_file(${QML_FILE} qml/${QML_FILE} COPYONLY)
+        file(READ "${CMAKE_CURRENT_BINARY_DIR}/qml/${QML_FILE}" QML_SOURCE)
+        string(REPLACE "import QtGraphicalEffects 1.12" "import Qt5Compat.GraphicalEffects" QML_SOURCE "${QML_SOURCE}")
+        file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/qml/${QML_FILE}" "${QML_SOURCE}")
+    endforeach()
+    configure_file(assets-qt6.qrc.in assets-qt6.qrc @ONLY)
+    set(PROJECT_RESOURCES "${CMAKE_CURRENT_BINARY_DIR}/assets-qt6.qrc")
+endif()
+
 # -----------------------------------------------------------------------------
 # 3. Source Definitions
 # -----------------------------------------------------------------------------
@@ -68,7 +80,7 @@ set(PROJECT_SOURCES
     filepermissionvalidator.h
     
     # Resources
-    assets.qrc
+    ${PROJECT_RESOURCES}
     Main.qml  # Included here so it shows up in IDEs
     
     # Legacy C Sources (Required for uinput injection)

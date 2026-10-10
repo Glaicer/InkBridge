@@ -1,5 +1,7 @@
 # InkBridge
 
+> Fork of [dagaza/InkBridge](https://github.com/dagaza/InkBridge). Installation, build instructions, and Qt 6 compatibility modified on 2026-10-10. Original copyright and component license notices are preserved.
+
 **The high-performance bridge between your Android device and your Linux desktop.**
 
 *(Because Tux deserves a super display, too. If you just switched from Windows and are desperately Googling for a "SuperDisplay alternative for Linux"—welcome home.)*
@@ -49,36 +51,59 @@ Connecting Android to Linux over a standard home network is notoriously unreliab
 
 ## 🚀 Installation & Build
 
-### **Option 1: The Quick Way (Recommended)**
-If you downloaded a release, simply run the included setup script to configure your system permissions and install the desktop shortcut:
-
-```bash
-chmod +x INSTALL.sh
-sudo ./INSTALL.sh
-```
-*Note: You will need to log out and log back in once for the permission changes to take effect.*
-
-### **Option 2: Building from Source**
+### Building and installing the desktop app
 
 #### Prerequisites
-* **Qt 5.12+** (Core, Gui, Qml, Quick, Concurrent)
-* **libusb-1.0** (Development headers)
-* **C++20** compliant compiler (GCC/Clang)
+* **Qt 5 or Qt 6** (Core, Gui, Qml, Quick, Svg, Widgets, Network, Bluetooth)
+* **Qt 6 builds:** also require the **Qt5Compat GraphicalEffects** QML runtime (`qt6-qt5compat` on Fedora).
+* **libusb-1.0** development headers
+* **CMake 3.16+**, pkg-config, and a **C++20** compiler
 
-#### Building the Linux Client
+On Fedora 44:
 ```bash
-# Clone the repository
-git clone [https://github.com/yourusername/InkBridge.git](https://github.com/yourusername/InkBridge.git)
-cd InkBridge
-
-# Install dependencies (Ubuntu/Debian example)
-sudo apt install build-essential qt5-default libusb-1.0-0-dev
-
-# Build with qmake
-mkdir build && cd build
-qmake ../InkBridge.pro
-make -j$(nproc)
+sudo dnf install -y gcc-c++ cmake make pkgconf-pkg-config \
+  qt6-qtbase-devel qt6-qtdeclarative-devel qt6-qtsvg-devel \
+  qt6-qtconnectivity-devel qt6-qt5compat libusb1-devel
 ```
+
+```bash
+git clone https://github.com/Glaicer/InkBridge.git
+cd InkBridge
+cmake -S inkbridge-desktop -B inkbridge-desktop/build -DCMAKE_BUILD_TYPE=Release
+cmake --build inkbridge-desktop/build --parallel
+sudo ./INSTALL.sh
+```
+
+The installer uses only `inkbridge-desktop/build/InkBridge`, not the older prebuilt binary committed upstream. It installs the app, udev rules, icon, and desktop entry. Script paths are resolved relative to the installer, not your current directory. Any failed command stops installation instead of reporting success.
+
+Log out and back in once if the installer changed your group memberships.
+
+#### Uninstalling
+```bash
+sudo ./inkbridge-desktop/UNINSTALL.sh
+```
+
+This removes the installed app, udev rules, icon, and desktop entry. Build/runtime packages and group memberships are retained. Only use `--remove-groups` if the installer added you to `input`/`plugdev` and those memberships are not needed by other software.
+
+#### Startup regression check
+With Python 3, `xprop`, and a running X11/XWayland session:
+```bash
+python3 inkbridge-desktop/tests/check_startup.py
+```
+The check opens the built app, verifies that its window appears and stays running, then closes the test instance.
+
+#### Building the Android APK
+Install the Android SDK first. A full JDK with `javac` is required; a Java runtime alone is insufficient. On Fedora 44, the build was verified with `java-25-openjdk-devel`:
+```bash
+sudo dnf install -y java-25-openjdk-devel
+export JAVA_HOME=/usr/lib/jvm/java-25-openjdk
+export ANDROID_HOME="$HOME/Android/Sdk"
+cd inkbridge-android
+./gradlew assembleDebug --console=plain
+```
+Set `ANDROID_HOME` to your actual SDK location. The debug-signed APK is generated at `inkbridge-android/app/build/outputs/apk/debug/app-debug.apk` relative to the repository root. If Gradle still reports a missing Java compiler after installing the JDK, run `./gradlew --stop` and retry.
+
+Local SDK paths, generated builds, and APKs are not committed.
 
 #### Setting up Permissions (`uinput`)
 To allow InkBridge to create a virtual tablet device without running as root (sudo), you must configure `udev` rules.
@@ -162,7 +187,7 @@ While the original project is no longer maintained/deprecated, it served as the 
 
 ## 📄 License
 
-This project is licensed under the **GNU General Public License v3.0 (GPL-3.0)**.
+The desktop and Android components declare **GNU Affero General Public License v3.0 or later (AGPL-3.0-or-later)** in their `LICENSE.txt` files. This fork follows those declarations and preserves the original per-file license and copyright notices.
 
 You are free to:
 
@@ -172,10 +197,12 @@ You are free to:
 * Distribute modified versions
 
 Under the following terms:
-* Any derivative work must also be licensed under GPL-3.0
-* The full source code must be made available when distributing the software
+* Distributed derivative versions must comply with AGPL-3.0-or-later
+* Corresponding source must be provided when distributing binaries; modified versions must also offer it to users interacting remotely over a network as required by AGPL section 13
 * License notices and copyright statements must be preserved
 
 This project is distributed **without any warranty**, including without implied warranties of merchantability or fitness for a particular purpose. See the full license text for details.
 
-The complete license text is available in the LICENSE file in this repository or at https://www.gnu.org/licenses/gpl-3.0.en.html 
+The complete license text is available in [inkbridge-desktop/LICENSE.txt](inkbridge-desktop/LICENSE.txt), [inkbridge-android/LICENSE.txt](inkbridge-android/LICENSE.txt), and at https://www.gnu.org/licenses/agpl-3.0.html.
+
+Upstream metadata is inconsistent: its README stated GPL-3.0, while the inherited `PKGBUILD` still states MIT. Neither label matches the component `LICENSE.txt` files. The original license texts, including the notice about BSD-licensed contributions, remain unchanged.

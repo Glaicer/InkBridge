@@ -1,0 +1,9 @@
+<!DOCTYPE RCC>
+<RCC version="1.0">
+    <qresource prefix="/">
+        <file alias="assets/inkbridge.png">@CMAKE_CURRENT_SOURCE_DIR@/assets/inkbridge.png</file>
+        <file alias="assets/inkbridge_wordmark.svg">@CMAKE_CURRENT_SOURCE_DIR@/assets/inkbridge_wordmark.svg</file>
+        <file alias="OnboardingTutorial.qml">@CMAKE_CURRENT_BINARY_DIR@/qml/OnboardingTutorial.qml</file>
+        <file alias="Main.qml">@CMAKE_CURRENT_BINARY_DIR@/qml/Main.qml</file>
+    </qresource>
+</RCC>
