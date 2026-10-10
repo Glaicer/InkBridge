@@ -6,6 +6,8 @@
 #include <libusb-1.0/libusb.h>
 #include "virtualstylus.h"
 
+class UsbVideoChannel;
+
 namespace InkBridge {
 
 // Forward declaration
@@ -37,7 +39,7 @@ public:
     UsbConnection(const UsbConnection&) = delete;
     UsbConnection& operator=(const UsbConnection&) = delete;
 
-    int startCapture(const std::string& deviceId, VirtualStylus* stylus);
+    int startCapture(const std::string& deviceId, VirtualStylus* stylus, UsbVideoChannel* videoChannel);
     libusb_device_handle* getHandle() const { return handle.get(); }
 
     // --- MOVED TO PUBLIC ---

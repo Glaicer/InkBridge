@@ -18,22 +18,23 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # 2. Dependencies (Qt Quick + LibUSB + Network)
 # -----------------------------------------------------------------------------
 # UPDATED: Added 'Network' component to both Qt6 and Qt5 blocks
-find_package(Qt6 COMPONENTS Quick Qml Core Gui Svg Widgets Network Bluetooth QUIET)
+find_package(Qt6 COMPONENTS Quick Qml Core Gui Svg Widgets Network Bluetooth DBus QUIET)
 
 if(Qt6_FOUND)
     message(STATUS "Building with Qt 6 (${Qt6_VERSION})")
     # UPDATED: Added Qt6::Network
-    set(QT_LIBS Qt6::Quick Qt6::Qml Qt6::Core Qt6::Gui Qt6::Svg Qt6::Widgets Qt6::Network Qt6::Bluetooth)
+    set(QT_LIBS Qt6::Quick Qt6::Qml Qt6::Core Qt6::Gui Qt6::Svg Qt6::Widgets Qt6::Network Qt6::Bluetooth Qt6::DBus)
 else()
     message(STATUS "Qt 6 not found, falling back to Qt 5...")
     # UPDATED: Added Network component
-    find_package(Qt5 COMPONENTS Quick Qml Core Gui Svg Widgets Network Bluetooth REQUIRED)
+    find_package(Qt5 COMPONENTS Quick Qml Core Gui Svg Widgets Network Bluetooth DBus REQUIRED)
     # UPDATED: Added Qt5::Network
-    set(QT_LIBS Qt5::Quick Qt5::Qml Qt5::Core Qt5::Gui Qt5::Svg Qt5::Widgets Qt5::Network Qt5::Bluetooth)
+    set(QT_LIBS Qt5::Quick Qt5::Qml Qt5::Core Qt5::Gui Qt5::Svg Qt5::Widgets Qt5::Network Qt5::Bluetooth Qt5::DBus)
 endif()
 
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(LIBUSB REQUIRED libusb-1.0)
+pkg_check_modules(GSTREAMER REQUIRED IMPORTED_TARGET gstreamer-1.0>=1.20 gstreamer-app-1.0 gstreamer-video-1.0)
 
 set(PROJECT_RESOURCES assets.qrc)
 if(Qt6_FOUND)
@@ -57,6 +58,12 @@ set(PROJECT_SOURCES
     # QML Bridge & Logic (Phase 5)
     backend.cpp
     backend.h
+    screenmirror.cpp
+    screenmirror.h
+    usbvideochannel.cpp
+    usbvideochannel.h
+    videopipeline.cpp
+    videopipeline.h
     
     # NEW: Networking (Phase 6)
     wifidirectserver.cpp
@@ -105,6 +112,7 @@ target_include_directories(InkBridge PRIVATE
 target_link_libraries(InkBridge PRIVATE
     ${QT_LIBS}
     ${LIBUSB_LIBRARIES}
+    PkgConfig::GSTREAMER
     
 )
 
@@ -145,6 +153,21 @@ add_custom_command(TARGET InkBridge POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
     ${CMAKE_CURRENT_SOURCE_DIR}/Main.qml
     $<TARGET_FILE_DIR:InkBridge>)
+
+include(CTest)
+if(BUILD_TESTING)
+    add_executable(usb_video_tests tests/usb_video_tests.cpp usbvideochannel.cpp usbvideochannel.h videopipeline.cpp)
+    target_include_directories(usb_video_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(usb_video_tests PRIVATE ${QT_LIBS} PkgConfig::GSTREAMER)
+    add_test(NAME usb_video COMMAND usb_video_tests)
+    add_executable(screenmirror_portal_tests tests/screenmirror_portal_tests.cpp screenmirror.cpp screenmirror.h usbvideochannel.cpp usbvideochannel.h videopipeline.cpp)
+    target_include_directories(screenmirror_portal_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(screenmirror_portal_tests PRIVATE ${QT_LIBS} PkgConfig::GSTREAMER)
+    find_program(DBUS_RUN_SESSION dbus-run-session)
+    if(DBUS_RUN_SESSION)
+        add_test(NAME screenmirror_portal COMMAND ${DBUS_RUN_SESSION} -- $<TARGET_FILE:screenmirror_portal_tests>)
+    endif()
+endif()
 
 
 #    =============================================================================

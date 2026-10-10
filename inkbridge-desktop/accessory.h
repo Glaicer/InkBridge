@@ -7,6 +7,7 @@
 
 // Forward declarations
 class VirtualStylus;
+class UsbVideoChannel;
 
 // We need to forward declare UsbConnection properly since it's inside a namespace
 namespace InkBridge {
@@ -29,7 +30,7 @@ struct AccessoryEventData {
 };
 
 // Function prototypes
-void accessory_main(InkBridge::UsbConnection* conn, VirtualStylus* virtualStylus);
+void accessory_main(InkBridge::UsbConnection* conn, VirtualStylus* virtualStylus, UsbVideoChannel* videoChannel);
 bool parseAccessoryEventDataLine(const std::string &line, AccessoryEventData * accessoryEventData);
 
 #endif // ACCESSORY_H

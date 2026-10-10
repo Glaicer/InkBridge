@@ -89,8 +89,6 @@ class MainActivity : ComponentActivity() {
                 }
                 UsbManager.ACTION_USB_ACCESSORY_DETACHED -> {
                     viewModel.disconnectAll()
-                    finishAffinity()
-                    System.exit(0)
                 }
             }
         }
@@ -143,6 +141,11 @@ class MainActivity : ComponentActivity() {
         }
         registerReceiver(bluetoothScanReceiver, btFilter)
 
+        UsbStreamService.onDisconnected = { message ->
+            runOnUiThread {
+                if (!UsbStreamService.isConnected) viewModel.usbDisconnected(message)
+            }
+        }
         // Initialize WiFi Direct Callbacks
         WifiDirectService.init(this)
         WifiDirectService.onStatusChanged = { msg -> runOnUiThread { viewModel.updateStatus(msg) } }
@@ -185,7 +188,7 @@ class MainActivity : ComponentActivity() {
 
                 val rootView = LocalView.current
                 if (uiState.isConnected) {
-                    DrawingPadScreen(onDisconnect = { viewModel.disconnectAll() })
+                    DrawingPadScreen(isUsb = uiState.isUsbConnected, onDisconnect = { viewModel.disconnectAll() })
                 } else {
                     DashboardScreen(
                         uiState = uiState,
@@ -210,6 +213,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        UsbStreamService.onDisconnected = null
         try { unregisterReceiver(bluetoothScanReceiver) } catch (_: Exception) {}
         try { unregisterReceiver(usbReceiver) } catch (_: Exception) {}
         bluetoothAdapter?.let { BluetoothStreamService.cancelDiscovery(it) }

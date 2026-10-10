@@ -321,14 +321,22 @@ void VirtualStylus::destroyStylus(){
 }
 
 void VirtualStylus::setTargetScreen(QRect geometry) {
+    std::lock_guard<std::mutex> lock(m_mutex);
     this->targetScreenGeometry = geometry;
 }
 
 void VirtualStylus::setTotalDesktopGeometry(QRect geometry) {
+    std::lock_guard<std::mutex> lock(m_mutex);
     this->totalDesktopGeometry = geometry;
 }
 
 void VirtualStylus::setInputResolution(int width, int height) {
+    std::lock_guard<std::mutex> lock(m_mutex);
     this->inputWidth  = width;
     this->inputHeight = height;
+}
+
+void VirtualStylus::setSwapAxis(bool swap) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    this->swapAxis = swap;
 }

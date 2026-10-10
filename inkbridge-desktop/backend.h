@@ -20,6 +20,9 @@
 #include "displayscreentranslator.h"
 #include "pressuretranslator.h"
 #include "bluetoothserver.h"
+#include "usbvideochannel.h"
+#include "screenmirror.h"
+#include <QFuture>
 
 class Backend : public QObject
 {
@@ -34,6 +37,11 @@ class Backend : public QObject
     Q_PROPERTY(int minPressure READ minPressure NOTIFY settingsChanged)
     Q_PROPERTY(bool swapAxis READ swapAxis NOTIFY settingsChanged)
     Q_PROPERTY(bool isBluetoothRunning READ isBluetoothRunning NOTIFY bluetoothStatusChanged)
+    Q_PROPERTY(bool usbVideoReady READ usbVideoReady NOTIFY usbVideoReadyChanged)
+    Q_PROPERTY(bool isMirroring READ isMirroring NOTIFY mirrorStateChanged)
+    Q_PROPERTY(QString mirrorStatus READ mirrorStatus NOTIFY mirrorStateChanged)
+    Q_PROPERTY(int mirrorPreset READ mirrorPreset NOTIFY mirrorStateChanged)
+    Q_PROPERTY(int selectedScreen READ selectedScreen NOTIFY settingsChanged)
 
 
 public:
@@ -50,6 +58,11 @@ public:
     int pressureSensitivity() const;
     int minPressure() const;
     bool swapAxis() const;
+    bool usbVideoReady() const;
+    bool isMirroring() const;
+    QString mirrorStatus() const;
+    int mirrorPreset() const;
+    int selectedScreen() const;
 
     // --- NEW: Auto-Connect Public Methods ---
     Q_INVOKABLE void startAutoConnect();
@@ -73,6 +86,8 @@ public slots:
     void toggleDebug(bool enable);
     void resetDefaults();
     void toggleBluetooth();
+    void toggleUsbMirror();
+    void setMirrorPreset(int preset);
 
 signals:
     void screenListChanged();
@@ -82,6 +97,8 @@ signals:
     void wifiDirectStatusChanged();
     void settingsChanged();
     void bluetoothStatusChanged();
+    void usbVideoReadyChanged();
+    void mirrorStateChanged();
 
 private:
     VirtualStylus *m_stylus;
@@ -89,6 +106,12 @@ private:
     PressureTranslator *m_pressureTranslator;
     WifiDirectServer *m_wifiDirectServer;
     BluetoothServer *m_bluetoothServer;
+    UsbVideoChannel *m_videoChannel;
+    ScreenMirror *m_screenMirror;
+    QString m_mirrorStatus = "Connect the updated Android app via USB to mirror a monitor.";
+    int m_mirrorPreset = 0;
+    int m_selectedScreen = 0;
+    QFuture<void> m_usbTask;
         
     QVector<QRect> m_screenRects;
     QVariantList m_screenGeometriesVariant;

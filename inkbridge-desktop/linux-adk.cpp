@@ -7,7 +7,7 @@
 
 // External legacy function - We will need to refactor this next!
 // Note: We changed the signature to accept our new C++ class
-extern void accessory_main(InkBridge::UsbConnection* conn, VirtualStylus* virtualStylus);
+extern void accessory_main(InkBridge::UsbConnection* conn, VirtualStylus* virtualStylus, UsbVideoChannel* videoChannel);
 
 namespace InkBridge {
 
@@ -27,7 +27,7 @@ UsbConnection::~UsbConnection() {
     libusb_exit(nullptr);
 }
 
-int UsbConnection::startCapture(const std::string& selectedDevice, VirtualStylus* stylus) {
+int UsbConnection::startCapture(const std::string& selectedDevice, VirtualStylus* stylus, UsbVideoChannel* videoChannel) {
     // Update config with user selection
     config.deviceId = selectedDevice;
 
@@ -48,7 +48,7 @@ int UsbConnection::startCapture(const std::string& selectedDevice, VirtualStylus
 
     // Call the main loop (defined in accessory.cpp)
     // We pass 'this' because we are the new "Accessory Context"
-    accessory_main(this, stylus);
+    accessory_main(this, stylus, videoChannel);
 
     return 0;
 }

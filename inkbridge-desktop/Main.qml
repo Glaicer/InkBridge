@@ -615,7 +615,7 @@ ApplicationWindow {
                                     Layout.fillHeight: true
                                     
                                     property var geometries: backend.screenGeometries
-                                    property int selectedIndex: 0
+                                    property int selectedIndex: backend.selectedScreen
 
                                     property real minX: 0
                                     property real minY: 0
@@ -683,9 +683,9 @@ ApplicationWindow {
                                                 id: mouseArea
                                                 anchors.fill: parent
                                                 hoverEnabled: true
+                                                enabled: !backend.isMirroring
                                                 cursorShape: Qt.PointingHandCursor
                                                 onClicked: {
-                                                    screenCanvas.selectedIndex = index;
                                                     backend.selectScreen(index)
                                                 }
                                             }
@@ -694,11 +694,64 @@ ApplicationWindow {
                                 }
                                 
                                 Label {
-                                    text: "Select the monitor where the tablet cursor should appear"
+                                    text: backend.isMirroring ? "Monitor mapping is locked while sharing" : "Select the monitor to control; share the same monitor in the system dialog"
                                     color: subTextCol
                                     font.pixelSize: 13
                                     Layout.alignment: Qt.AlignHCenter
                                     Behavior on color { ColorAnimation { duration: animDuration } }
+                                }
+                            }
+                        }
+                    }
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 12
+
+                        Label {
+                            text: "USB Screen Mirroring"
+                            font.weight: Font.Bold
+                            font.pixelSize: 18
+                            color: textCol
+                        }
+
+                        Rectangle {
+                            Layout.fillWidth: true
+                            implicitHeight: mirrorLayout.implicitHeight + 40
+                            color: cardCol
+                            radius: 12
+                            border.color: borderCol
+
+                            ColumnLayout {
+                                id: mirrorLayout
+                                anchors.fill: parent
+                                anchors.margins: 20
+                                spacing: 12
+
+                                RowLayout {
+                                    Layout.fillWidth: true
+
+                                    ComboBox {
+                                        Layout.fillWidth: true
+                                        model: ["720p / 30 fps", "1080p / 30 fps", "720p / 60 fps"]
+                                        currentIndex: backend.mirrorPreset
+                                        enabled: !backend.isMirroring
+                                        onActivated: backend.setMirrorPreset(currentIndex)
+                                    }
+
+                                    Button {
+                                        text: backend.isMirroring ? "Stop Sharing" : "Mirror via USB"
+                                        enabled: backend.usbVideoReady || backend.isMirroring
+                                        onClicked: backend.toggleUsbMirror()
+                                    }
+                                }
+
+                                Label {
+                                    Layout.fillWidth: true
+                                    text: backend.mirrorStatus
+                                    wrapMode: Text.WordWrap
+                                    color: subTextCol
+                                    font.pixelSize: 13
                                 }
                             }
                         }
@@ -929,6 +982,7 @@ ApplicationWindow {
                                     }
                                     CheckBox {
                                         checked: backend.swapAxis
+                                        enabled: !backend.isMirroring
                                         onToggled: backend.setSwapAxis(checked)
                                         
                                         indicator: Rectangle {

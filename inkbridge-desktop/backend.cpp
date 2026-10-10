@@ -29,6 +29,29 @@ Backend::Backend(QObject *parent)
     m_displayTranslator = new DisplayScreenTranslator();
     m_pressureTranslator = new PressureTranslator();
     m_stylus = new VirtualStylus(m_displayTranslator, m_pressureTranslator);
+    m_videoChannel = new UsbVideoChannel(this);
+    m_screenMirror = new ScreenMirror(m_videoChannel, this);
+    connect(m_videoChannel, &UsbVideoChannel::tabletReadyChanged, this, &Backend::usbVideoReadyChanged);
+    connect(m_videoChannel, &UsbVideoChannel::connectionChanged, this, [this] {
+        emit usbVideoReadyChanged();
+        if (!m_videoChannel->connected()) m_screenMirror->stop("USB disconnected. Screen sharing stopped.");
+        else updateStatus("Connected via USB", true);
+    });
+    connect(m_screenMirror, &ScreenMirror::activeChanged, this, &Backend::mirrorStateChanged);
+    connect(m_screenMirror, &ScreenMirror::statusChanged, this, [this](const QString &status) {
+        m_mirrorStatus = status;
+        emit mirrorStateChanged();
+    });
+    connect(m_screenMirror, &ScreenMirror::screenSelected, this, [this](QRect geometry) {
+        const int index = m_screenRects.indexOf(geometry);
+        if (index < 0) {
+            m_screenMirror->stop("Shared monitor does not match the desktop monitor geometry. Select the intended monitor and retry.");
+            return;
+        }
+        m_selectedScreen = index;
+        m_stylus->setTargetScreen(geometry);
+        emit settingsChanged();
+    });
     
     
     m_wifiDirectServer = new WifiDirectServer(this);
@@ -93,7 +116,12 @@ Backend::Backend(QObject *parent)
 }
 
 Backend::~Backend() {
+    m_screenMirror->stop("Desktop closed. Disconnect or reconnect the Android app.");
+    m_videoChannel->waitForDelivery(750);
     stopAutoConnect(); // Stop thread safely
+    m_usbTask.waitForFinished();
+    delete m_screenMirror;
+    delete m_videoChannel;
     if (m_bluetoothServer) {
         m_bluetoothServer->stopServer();
     }
@@ -118,6 +146,26 @@ bool Backend::isBluetoothRunning() const { return m_bluetoothRunning; }
 int Backend::pressureSensitivity() const { return m_pressureSensitivity; }
 int Backend::minPressure() const { return m_minPressure; }
 bool Backend::swapAxis() const { return m_swapAxis; }
+bool Backend::usbVideoReady() const { return m_videoChannel->tabletReady(); }
+bool Backend::isMirroring() const { return m_screenMirror->active(); }
+QString Backend::mirrorStatus() const { return m_mirrorStatus; }
+int Backend::mirrorPreset() const { return m_mirrorPreset; }
+int Backend::selectedScreen() const { return m_selectedScreen; }
+
+void Backend::toggleUsbMirror() {
+    if (isMirroring()) {
+        m_screenMirror->stop();
+    } else if (usbVideoReady() && m_selectedScreen >= 0 && m_selectedScreen < m_screenRects.size()) {
+        setSwapAxis(false);
+        m_screenMirror->start(m_screenRects[m_selectedScreen], m_mirrorPreset);
+    }
+}
+
+void Backend::setMirrorPreset(int preset) {
+    if (isMirroring() || preset < 0 || preset > 2) return;
+    m_mirrorPreset = preset;
+    emit mirrorStateChanged();
+}
 
 // --- Logic ---
 void Backend::refreshScreens() {
@@ -161,8 +209,11 @@ void Backend::refreshScreens() {
 }
 
 void Backend::selectScreen(int index) {
+    if (isMirroring()) return;
     if (index >= 0 && index < m_screenRects.size()) {
         m_stylus->setTargetScreen(m_screenRects[index]);
+        m_selectedScreen = index;
+        emit settingsChanged();
         qDebug() << "Selected Screen Index:" << index;
     }
 }
@@ -206,6 +257,8 @@ void Backend::refreshUsbDevices() {
 }
 
 void Backend::connectDevice(int deviceIndex) {
+    if (m_usbTask.isRunning()) return;
+    stopAutoConnect();
     if (deviceIndex < 0 || deviceIndex >= m_usbDeviceIds.size()) {
         updateStatus("Invalid Device Selected", false);
         return;
@@ -215,9 +268,9 @@ void Backend::connectDevice(int deviceIndex) {
     
     InkBridge::stop_acc = false;
 
-    QtConcurrent::run([=, this](){
+    m_usbTask = QtConcurrent::run([=, this](){
         InkBridge::UsbConnection connection;
-        int res = connection.startCapture(deviceId.toStdString(), m_stylus);
+        int res = connection.startCapture(deviceId.toStdString(), m_stylus, m_videoChannel);
         QMetaObject::invokeMethod(this, [=, this](){
             updateStatus("Disconnected (Code " + QString::number(res) + ")", false);
         });
@@ -226,6 +279,7 @@ void Backend::connectDevice(int deviceIndex) {
 
 void Backend::disconnectDevice() {
     InkBridge::stop_acc = true;
+    m_screenMirror->stop();
     updateStatus("Disconnecting...", false);
 }
 
@@ -258,8 +312,9 @@ void Backend::setMinPressure(int value) {
 }
 
 void Backend::setSwapAxis(bool swap) {
+    if (isMirroring() && swap) return;
     m_swapAxis = swap;
-    m_stylus->swapAxis = swap;
+    m_stylus->setSwapAxis(swap);
     emit settingsChanged();
 }
 
@@ -475,7 +530,7 @@ void Backend::autoConnectLoop() {
             
             qDebug() << "[AutoConnect] Engaging Capture Mode (Blocking)...";
             // This line blocks until the device is unplugged or error occurs
-            int res = connection.startCapture(deviceId.toStdString(), m_stylus);
+            int res = connection.startCapture(deviceId.toStdString(), m_stylus, m_videoChannel);
 
             qDebug() << "[AutoConnect] <<< DISCONNECTED. Return Code:" << res;
 

@@ -7,6 +7,7 @@ import android.os.ParcelFileDescriptor
 import android.util.Log
 import android.view.View
 import java.io.FileDescriptor
+import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.OutputStream
 
@@ -15,6 +16,12 @@ object UsbStreamService {
     private const val TAG = "InkBridgeUsbService"
     private var fileDescriptor: ParcelFileDescriptor? = null
     private var workerThread: Thread? = null
+    private var readerThread: Thread? = null
+    private var inputStream: FileInputStream? = null
+    private var outputStream: FileOutputStream? = null
+    @Volatile private var generation = 0
+    var onDisconnected: ((String) -> Unit)? = null
+    val isConnected: Boolean get() = isStreamOpen
     
     // Using the zero-allocation circular buffer
     private val ringBuffer = PacketRingBuffer(16)
@@ -23,6 +30,12 @@ object UsbStreamService {
     private var currentListener: TouchListener? = null
 
     private const val HEARTBEAT_PACKET_SIZE = 22
+    val videoPlayer = UsbVideoPlayer { action ->
+        if (isStreamOpen) {
+            val control = UsbVideoProtocol.control(action)
+            ringBuffer.write(control, 0, control.size)
+        }
+    }
 
     fun updateView(view: View) {
         if (currentListener != null) {
@@ -36,6 +49,7 @@ object UsbStreamService {
      * BLOCKING call to open the stream.
      * Call this from a background thread (Dispatchers.IO).
      */
+    @Synchronized
     fun connect(usbManager: UsbManager, accessory: UsbAccessory, context: Context): Boolean {
         if (isStreamOpen) {
             closeStream()
@@ -51,14 +65,25 @@ object UsbStreamService {
 
             val fd: FileDescriptor = fileDescriptor!!.fileDescriptor
             val rawOutputStream = FileOutputStream(fd)
+            val rawInputStream = FileInputStream(fd)
+            outputStream = rawOutputStream
+            inputStream = rawInputStream
+            val session = generation
 
             isStreamOpen = true
             ringBuffer.clear()
+            videoPlayer.start()
 
             workerThread = Thread {
-                writeLoop(rawOutputStream)
+                writeLoop(rawOutputStream, session)
             }.apply {
                 name = "InkBridge-UsbWriter"
+                start()
+            }
+            readerThread = Thread {
+                readLoop(rawInputStream, session)
+            }.apply {
+                name = "InkBridge-UsbVideoReader"
                 start()
             }
 
@@ -87,10 +112,10 @@ object UsbStreamService {
         }
     }
 
-    private fun writeLoop(stream: FileOutputStream) {
+    private fun writeLoop(stream: FileOutputStream, session: Int) {
         val heartbeat = ByteArray(HEARTBEAT_PACKET_SIZE) { 127.toByte() }
 
-        while (isStreamOpen) {
+        while (isStreamOpen && session == generation) {
             try {
                 // Waits up to 500ms for data, drains it instantly if available
                 val hasData = ringBuffer.waitForDataAndDrain(stream, 500)
@@ -100,29 +125,59 @@ object UsbStreamService {
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Write Loop Error: ${e.message}")
-                isStreamOpen = false
+                disconnected(session, "USB write failed: ${e.message}")
                 break
             }
         }
 
-        try { stream.close() } catch (e: Exception) {}
     }
 
+    private fun readLoop(stream: FileInputStream, session: Int) {
+        try {
+            val reader = UsbVideoProtocol.Reader(stream)
+            while (isStreamOpen && session == generation) {
+                val packet = reader.read() ?: break
+                if (session == generation) videoPlayer.offer(packet)
+            }
+            disconnected(session, "USB disconnected.")
+        } catch (error: Exception) {
+            if (isStreamOpen && session == generation) {
+                Log.e(TAG, "USB video read failed", error)
+                disconnected(session, "USB video read failed: ${error.message}")
+            }
+        }
+    }
+
+    private fun disconnected(session: Int, message: String) {
+        if (session != generation || !isStreamOpen) return
+        isStreamOpen = false
+        videoPlayer.videoError(message)
+        onDisconnected?.invoke(message)
+    }
+
+    @Synchronized
     fun closeStream() {
         Log.d(TAG, "Closing Stream...")
         isStreamOpen = false
+        generation++
+        try { inputStream?.close() } catch (_: Exception) {}
+        try { outputStream?.close() } catch (_: Exception) {}
+        try { fileDescriptor?.close() } catch (_: Exception) {}
+        inputStream = null
+        outputStream = null
+        fileDescriptor = null
         try {
             workerThread?.interrupt()
-            workerThread?.join(1000)
+            readerThread?.interrupt()
+            if (workerThread !== Thread.currentThread()) workerThread?.join(1000)
+            if (readerThread !== Thread.currentThread()) readerThread?.join(1000)
         } catch (e: Exception) {}
 
         workerThread = null
+        readerThread = null
+        videoPlayer.stop()
         currentListener = null
 
-        try {
-            fileDescriptor?.close()
-        } catch (e: Exception) {}
-        fileDescriptor = null
         ringBuffer.clear()
         Log.d(TAG, "Stream Closed.")
     }

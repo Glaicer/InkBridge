@@ -33,6 +33,7 @@ public:
     void setTargetScreen(QRect geometry);
     void setTotalDesktopGeometry(QRect geometry);
     void setInputResolution(int width, int height);
+    void setSwapAxis(bool swap);
 
     bool swapAxis = false;
 

@@ -1,6 +1,6 @@
 # InkBridge
 
-> Fork of [dagaza/InkBridge](https://github.com/dagaza/InkBridge). Installation, build instructions, and Qt 6 compatibility modified on 2026-10-10. Original copyright and component license notices are preserved.
+> Fork of [dagaza/InkBridge](https://github.com/dagaza/InkBridge). Installation, build instructions, Qt 6 compatibility, and USB screen mirroring modified on 2026-10-10. Original copyright and component license notices are preserved.
 
 **The high-performance bridge between your Android device and your Linux desktop.**
 
@@ -26,6 +26,7 @@ Engineered for near-zero latency and professional-grade control, InkBridge offer
 
 * **Universal Input:** Supports S-Pen (Pressure/Tilt), capacitive styluses, and multi-touch finger input.
 * **USB Wired Connection:** Uses the **Android Open Accessory (AOA)** protocol for near-zero latency input.
+* **USB Screen Mirroring:** Show one existing Linux monitor on Android while drawing with real pen pressure, using portal-approved capture and native H.264 decoding.
 * **Professional-Grade Input Support:**
     * **Logarithmic Pressure Curve:** Custom-tuned math for natural, responsive strokes (4096 levels).
     * **True 3D Tilt:** Projects Android sensor data to standard Linux EV_ABS tilt axes (-90° to +90°).
@@ -43,8 +44,8 @@ Engineered for near-zero latency and professional-grade control, InkBridge offer
 
 InkBridge is a complete modernization of the Linux-Android drawing pipeline:
 
-1.  **Android App (Sender):** Written in **Kotlin**. Captures raw `MotionEvent` data, converts Tilt/Orientation radians to degrees, and streams packed binary structs via USB.
-2.  **Linux Desktop Client (Receiver):** Written in **C++20** with **Qt/QML**. Claims the USB device, decodes the stream, and injects events into the Linux kernel via `uinput`.
+1.  **Android App:** Written in **Kotlin**. Captures raw `MotionEvent` data, converts Tilt/Orientation radians to degrees, and streams packed binary structs via USB. The USB drawing surface also decodes and displays H.264 video with Android MediaCodec.
+2.  **Linux Desktop Client:** Written in **C++20** with **Qt/QML**. Claims the USB device, decodes pen packets, and injects events into the Linux kernel via `uinput`. For mirroring, the ScreenCast portal/PipeWire captures a monitor and GStreamer sends encoded video in the reverse USB direction.
 
 ### Why Wi-Fi Direct instead of standard Wi-Fi?
 Connecting Android to Linux over a standard home network is notoriously unreliable. Different Linux distributions (Ubuntu vs. Fedora vs. Arch) handle firewalls (ufw, firewalld, iptables) and hotspot configurations differently. To prevent users from having to debug their local router and firewall settings, InkBridge uses Wi-Fi Direct. Android creates the network and acts as the TCP Server, while the Linux client connects *outbound*, naturally bypassing strict Linux inbound firewalls.
@@ -54,16 +55,19 @@ Connecting Android to Linux over a standard home network is notoriously unreliab
 ### Building and installing the desktop app
 
 #### Prerequisites
-* **Qt 5 or Qt 6** (Core, Gui, Qml, Quick, Svg, Widgets, Network, Bluetooth)
+* **Qt 5 or Qt 6** (Core, Gui, Qml, Quick, Svg, Widgets, Network, Bluetooth, DBus)
 * **Qt 6 builds:** also require the **Qt5Compat GraphicalEffects** QML runtime (`qt6-qt5compat` on Fedora).
 * **libusb-1.0** development headers
+* **GStreamer 1.20+** development headers (core, app, video), plus PipeWire, OpenH264, and H.264 parser runtime plugins
 * **CMake 3.16+**, pkg-config, and a **C++20** compiler
 
 On Fedora 44:
 ```bash
 sudo dnf install -y gcc-c++ cmake make pkgconf-pkg-config \
   qt6-qtbase-devel qt6-qtdeclarative-devel qt6-qtsvg-devel \
-  qt6-qtconnectivity-devel qt6-qt5compat libusb1-devel
+  qt6-qtconnectivity-devel qt6-qt5compat libusb1-devel \
+  gstreamer1-devel gstreamer1-plugins-base-devel pipewire-gstreamer \
+  gstreamer1-plugins-bad-free gstreamer1-plugin-openh264
 ```
 
 ```bash
@@ -104,6 +108,33 @@ cd inkbridge-android
 Set `ANDROID_HOME` to your actual SDK location. The debug-signed APK is generated at `inkbridge-android/app/build/outputs/apk/debug/app-debug.apk` relative to the repository root. If Gradle still reports a missing Java compiler after installing the JDK, run `./gradlew --stop` and retry.
 
 Local SDK paths, generated builds, and APKs are not committed.
+
+### USB screen mirroring
+
+Install both updated desktop and Android builds. Video and pen input travel in opposite directions of the existing Android Open Accessory USB connection; ADB, USB debugging, Wi-Fi, and network ports are not required for use.
+
+1. Connect the tablet with a data-capable USB cable and allow the Android accessory permission.
+2. Select the monitor in **Map to Screen** on the desktop. When the Android video surface is ready, **Mirror via USB** becomes available.
+3. Start with **720p / 30 fps**, click **Mirror via USB**, and approve sharing the same monitor in the system dialog. Monitor geometry is matched automatically when the portal supplies position and size; otherwise the selected input mapping is retained, so select the same monitor in both places.
+4. Open your drawing application on that monitor. Android shows the mirrored image with its aspect ratio preserved, and pen coordinates are normalized inside the image rather than the surrounding black bars.
+   The Android app retains its existing landscape orientation when the tablet is turned; the desktop image is not rotated into portrait.
+5. **Stop Sharing** stops capture and video without disconnecting pen input. Unplugging the cable closes the session; reconnect and approve screen sharing again when needed.
+
+The presets bound the video to 1280x720 at 30/60 fps or 1920x1080 at 30 fps; portrait and other aspect ratios use smaller dimensions without stretching. The current desktop encoder is software OpenH264. Android uses its native H.264 decoder and enables low-latency decoding when supported. Actual frame rate and delay depend on the devices and must be measured; 60 fps is a ceiling, not a guarantee.
+
+Xiaomi Pad 5 with Xiaomi Smart Pen supports pressure sensitivity. Existing pressure, eraser/button, and tilt packets remain unchanged; video does not synthesize pressure or add missing hardware capabilities. Verify variable-width strokes with a pressure-sensitive brush on the actual tablet.
+
+Screen capture uses the desktop ScreenCast portal and PipeWire, including on Wayland. A working portal backend is required. Sharing is explicitly approved by the user, limited to one existing monitor, and stops on USB disconnection or revoked permission. This is mirroring, not an additional virtual monitor. Wi-Fi and Bluetooth remain input-only.
+
+#### Automated checks
+```bash
+ctest --test-dir inkbridge-desktop/build --output-on-failure
+cd inkbridge-android
+./gradlew :app:testDebugUnitTest --tests com.inkbridge.UsbVideoProtocolTest --console=plain
+```
+The desktop checks exercise the real OpenH264 pipeline for all presets, capability negotiation, wire framing, queue recovery, and isolated D-Bus portal permission/cancellation handling. Android tests check the same framing fixture, fragmented USB reads, unsupported accessory `available()` calls, input bounds, AVC configuration, and Xiaomi-sized aspect-ratio fitting. Live video, pen alignment, pressure, and stop/reconnect behavior were also verified on a Xiaomi Pad 5; remaining hardware checks and limitations are listed in the documentation below.
+
+The wire format and hardware verification checklist are documented in [docs/usb-screen-mirroring.md](docs/usb-screen-mirroring.md).
 
 #### Setting up Permissions (`uinput`)
 To allow InkBridge to create a virtual tablet device without running as root (sudo), you must configure `udev` rules.

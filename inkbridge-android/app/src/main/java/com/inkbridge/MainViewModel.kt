@@ -20,6 +20,7 @@ import kotlinx.coroutines.withContext
 
 data class MainUiState(
     val isConnected: Boolean = false,
+    val isUsbConnected: Boolean = false,
     val statusMessage: String = "Ready to Connect",
     val showTroubleshootingHint: Boolean = false,
     
@@ -52,10 +53,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val success = UsbStreamService.connect(usbManager, accessory, context)
             withContext(Dispatchers.Main) {
                 if (success) {
-                    _uiState.update { it.copy(isConnected = true, statusMessage = "Connected via USB") }
+                    _uiState.update { it.copy(isConnected = true, isUsbConnected = true, statusMessage = "Connected via USB") }
                 } else {
                     _uiState.update { it.copy(statusMessage = "Connection Failed. Check Driver.", showTroubleshootingHint = true) }
                 }
+            }
+        }
+    }
+
+    fun usbDisconnected(message: String) {
+        if (!_uiState.value.isUsbConnected) return
+        viewModelScope.launch(Dispatchers.IO) {
+            UsbStreamService.closeStream()
+            withContext(Dispatchers.Main) {
+                _uiState.update { it.copy(isConnected = false, isUsbConnected = false, statusMessage = message) }
             }
         }
     }
@@ -97,7 +108,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val success = BluetoothStreamService.connect(device, context)
             withContext(Dispatchers.Main) {
                 if (success) {
-                    _uiState.update { it.copy(isConnected = true, statusMessage = "Connected via Bluetooth") }
+                    _uiState.update { it.copy(isConnected = true, isUsbConnected = false, statusMessage = "Connected via Bluetooth") }
                 } else {
                     _uiState.update { it.copy(statusMessage = "Bluetooth connection failed. Is the desktop app running?") }
                 }
@@ -125,6 +136,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.update { 
             it.copy(
                 isConnected = true, 
+                isUsbConnected = false,
                 showWifiDirectDialog = false, 
                 statusMessage = "Connected via WiFi Direct"
             ) 
@@ -141,6 +153,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _uiState.update { 
                     it.copy(
                         isConnected = false, 
+                        isUsbConnected = false,
                         statusMessage = "Ready to Connect", 
                         showTroubleshootingHint = false,
                         showWifiDirectDialog = false

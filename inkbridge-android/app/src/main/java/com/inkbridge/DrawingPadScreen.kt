@@ -12,11 +12,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
 
 @Composable
-fun DrawingPadScreen(onDisconnect: () -> Unit) {
+fun DrawingPadScreen(isUsb: Boolean, onDisconnect: () -> Unit) {
     AndroidView(
         modifier = Modifier.fillMaxSize(),
         factory = { context: Context ->
-            FrameLayout(context).apply {
+            if (isUsb) UsbMirrorView(context) else FrameLayout(context).apply {
                 setBackgroundColor(android.graphics.Color.BLACK)
                 val textView = TextView(context).apply {
                     text = "InkBridge Active\n(Touch to Draw)"
