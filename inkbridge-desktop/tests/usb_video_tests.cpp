@@ -3,6 +3,7 @@
 #include <QCoreApplication>
 #include <QtEndian>
 #include <gst/app/gstappsink.h>
+#include <gst/video/video-event.h>
 #include <iostream>
 #include <cstdlib>
 
@@ -68,26 +69,45 @@ static void testChannel() {
     require(!channel.acceptControl(pen) && pen.pressure == 3072, "pen and pressure are not interpreted as control messages");
 }
 
-static void testEncoder() {
+static void testEncoder(bool useNvenc = false) {
     require(mirrorVideoSize(QSize(3840, 2160), 0) == QSize(1280, 720), "720p bounds");
     require(mirrorVideoSize(QSize(2560, 1600), 1) == QSize(1728, 1080), "preserve monitor aspect ratio");
     require(mirrorVideoSize(QSize(1080, 1920), 0) == QSize(404, 720), "portrait bounds are even");
     require(mirrorVideoSize(QSize(), 0).isEmpty(), "reject invalid monitor size");
+    require(mirrorVideoSize(QSize(3840, 2160), 3) == QSize(1920, 1080), "1080p/60 bounds");
+    require(mirrorVideoSize(QSize(3840, 2160), 4) == QSize(2560, 1440), "1440p/60 bounds");
+    require(mirrorVideoSize(QSize(2560, 1600), 4) == QSize(2304, 1440), "WQHD preserves aspect ratio");
+    require(mirrorVideoSize(QSize(1920, 1080), 4) == QSize(1920, 1080), "WQHD does not upscale capture");
+    require(mirrorVideoSize(QSize(3840, 2160), 5) == QSize(1280, 720), "720p/120 bounds");
+    require(mirrorVideoSize(QSize(3840, 2160), 6) == QSize(1920, 1080), "1080p/120 bounds");
+    require(mirrorVideoSize(QSize(3840, 2160), 7) == QSize(2560, 1440), "1440p/120 bounds");
+    require(mirrorVideoSize(QSize(3840, 2160), -1).isEmpty(), "reject negative preset");
+    require(mirrorVideoSize(QSize(3840, 2160), 8).isEmpty(), "reject unknown preset");
+    require(mirrorPipelineDescription("videotestsrc", QSize(320, 180), 8).isEmpty(), "reject unknown pipeline preset");
+    const int frameRates[] = {30, 30, 60, 60, 60, 120, 120, 120};
     gst_init(nullptr, nullptr);
-    for (int preset = 0; preset < 3; ++preset) {
+    for (int preset = 0; preset < 8; ++preset) {
         GError *error = nullptr;
-        const QString description = mirrorPipelineDescription("videotestsrc num-buffers=3", QSize(320, 180), preset);
+        const QString description = mirrorPipelineDescription("videotestsrc num-buffers=3", QSize(320, 180), preset, useNvenc);
         GstElement *pipeline = gst_parse_launch(description.toUtf8().constData(), &error);
         require(error == nullptr && pipeline != nullptr, "construct actual H.264 pipeline");
         GstElement *sink = gst_bin_get_by_name(GST_BIN(pipeline), "frames");
         require(gst_element_set_state(pipeline, GST_STATE_PLAYING) != GST_STATE_CHANGE_FAILURE, "start encoder");
         int frames = 0;
+        qint64 previousTime = -1;
         while (GstSample *sample = gst_app_sink_try_pull_sample(GST_APP_SINK(sink), 5 * GST_SECOND)) {
+            const qint64 time = mirrorPresentationTimeUs(sample);
+            require(time > previousTime && time < 1000000, "wire PTS uses running time rather than the encoder timestamp offset");
+            previousTime = time;
             GstBuffer *buffer = gst_sample_get_buffer(sample);
             GstMapInfo map{};
             require(gst_buffer_map(buffer, &map, GST_MAP_READ), "map encoded frame");
             const QByteArray bytes(reinterpret_cast<const char *>(map.data), int(map.size));
             if (frames == 0) {
+                int numerator = 0, denominator = 0;
+                const GstStructure *caps = gst_caps_get_structure(gst_sample_get_caps(sample), 0);
+                require(gst_structure_get_fraction(caps, "framerate", &numerator, &denominator), "encoded framerate is negotiated");
+                require(numerator == frameRates[preset] * denominator, "encoded framerate matches preset");
                 require(!GST_BUFFER_FLAG_IS_SET(buffer, GST_BUFFER_FLAG_DELTA_UNIT), "stream starts with IDR");
                 require(bytes.contains(QByteArray::fromHex("0000000167")), "keyframe includes SPS for Android decoder");
                 require(bytes.contains(QByteArray::fromHex("0000000168")), "keyframe includes PPS for Android decoder");
@@ -103,9 +123,76 @@ static void testEncoder() {
     }
 }
 
+static void testKeyFrameRequest(bool useNvenc) {
+    const QString description = mirrorPipelineDescription(
+        "videotestsrc is-live=true num-buffers=12 ! video/x-raw,framerate=60/1", QSize(320, 180), 2, useNvenc);
+    GError *error = nullptr;
+    GstElement *pipeline = gst_parse_launch(description.toUtf8().constData(), &error);
+    require(error == nullptr && pipeline != nullptr, "construct keyframe recovery pipeline");
+    GstElement *sink = gst_bin_get_by_name(GST_BIN(pipeline), "frames");
+    require(gst_element_set_state(pipeline, GST_STATE_PLAYING) != GST_STATE_CHANGE_FAILURE, "start keyframe recovery pipeline");
+    int frames = 0;
+    bool recovered = false;
+    while (GstSample *sample = gst_app_sink_try_pull_sample(GST_APP_SINK(sink), 5 * GST_SECOND)) {
+        GstBuffer *buffer = gst_sample_get_buffer(sample);
+        if (frames >= 3 && !GST_BUFFER_FLAG_IS_SET(buffer, GST_BUFFER_FLAG_DELTA_UNIT)) {
+            GstMapInfo map{};
+            require(gst_buffer_map(buffer, &map, GST_MAP_READ), "map requested keyframe");
+            const QByteArray bytes(reinterpret_cast<const char *>(map.data), int(map.size));
+            require(bytes.contains(QByteArray::fromHex("0000000167")) && bytes.contains(QByteArray::fromHex("0000000168")),
+                "requested keyframe repeats decoder configuration");
+            gst_buffer_unmap(buffer, &map);
+            recovered = true;
+        }
+        gst_sample_unref(sample);
+        if (++frames == 3) {
+            require(gst_element_send_event(sink, gst_video_event_new_upstream_force_key_unit(GST_CLOCK_TIME_NONE, TRUE, 0)),
+                "encoder accepts USB recovery keyframe request");
+        }
+        if (recovered) break;
+    }
+    require(recovered, "USB recovery produces a keyframe before the periodic GOP boundary");
+    gst_element_set_state(pipeline, GST_STATE_NULL);
+    gst_object_unref(sink);
+    gst_object_unref(pipeline);
+}
+
+static void testConversionSize() {
+    QString description = mirrorPipelineDescription(
+        "videotestsrc num-buffers=1 ! video/x-raw,format=RGBx,width=1280,height=720", QSize(320, 180), 2);
+    description.replace(" ! videoconvert", " ! videoconvert name=convert");
+    GError *error = nullptr;
+    GstElement *pipeline = gst_parse_launch(description.toUtf8().constData(), &error);
+    require(error == nullptr && pipeline != nullptr, "construct RGB capture pipeline");
+    GstElement *sink = gst_bin_get_by_name(GST_BIN(pipeline), "frames");
+    require(gst_element_set_state(pipeline, GST_STATE_PLAYING) != GST_STATE_CHANGE_FAILURE, "start RGB capture pipeline");
+    GstSample *sample = gst_app_sink_try_pull_sample(GST_APP_SINK(sink), 5 * GST_SECOND);
+    require(sample != nullptr, "RGB capture produces AVC");
+    GstElement *convert = gst_bin_get_by_name(GST_BIN(pipeline), "convert");
+    GstPad *pad = gst_element_get_static_pad(convert, "sink");
+    GstCaps *caps = gst_pad_get_current_caps(pad);
+    int width = 0, height = 0;
+    gst_structure_get_int(gst_caps_get_structure(caps, 0), "width", &width);
+    gst_structure_get_int(gst_caps_get_structure(caps, 0), "height", &height);
+    require(width == 320 && height == 180, "scale RGB before converting its color format");
+    gst_caps_unref(caps);
+    gst_object_unref(pad);
+    gst_object_unref(convert);
+    gst_sample_unref(sample);
+    gst_element_set_state(pipeline, GST_STATE_NULL);
+    gst_object_unref(sink);
+    gst_object_unref(pipeline);
+}
+
 int main(int argc, char **argv) {
     QCoreApplication app(argc, argv);
     testChannel();
     testEncoder();
+    testConversionSize();
+    testKeyFrameRequest(false);
+    if (mirrorNvencAvailable()) {
+        testEncoder(true);
+        testKeyFrameRequest(true);
+    }
     std::cout << "PASS: USB capability negotiation, framing, pressure isolation, bounded queues and all H.264 presets.\n";
 }

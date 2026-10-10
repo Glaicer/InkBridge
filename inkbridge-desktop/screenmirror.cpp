@@ -61,7 +61,7 @@ bool ScreenMirror::active() const {
 }
 
 void ScreenMirror::start(QRect screen, int preset) {
-    if (m_active || !m_channel->tabletReady()) return;
+    if (m_active || !m_channel->tabletReady() || !mirrorVideoPreset(preset)) return;
     if (!QDBusConnection::sessionBus().isConnected()) {
         fail("Screen sharing requires a desktop D-Bus session.");
         return;
@@ -83,6 +83,7 @@ void ScreenMirror::start(QRect screen, int preset) {
     }
     m_screen = screen;
     m_preset = preset;
+    m_retrySoftware = false;
     m_active = true;
     m_sessionPath = PortalPath + "/session/" + senderPath() + "/" + token();
     QDBusConnection::sessionBus().connect(Portal, m_sessionPath, SessionInterface, "Closed", this, SLOT(sessionClosed()));
@@ -184,6 +185,10 @@ void ScreenMirror::openStream(uint node, const QVariantMap &properties) {
         fail("The shared monitor has an invalid size.");
         return;
     }
+    openPipeWire(node, size);
+}
+
+void ScreenMirror::openPipeWire(uint node, QSize size) {
     QDBusMessage message = QDBusMessage::createMethodCall(Portal, PortalPath, ScreenCast, "OpenPipeWireRemote");
     message.setArguments({QVariant::fromValue(QDBusObjectPath(m_sessionPath)), QVariantMap()});
     const QString session = m_sessionPath;
@@ -202,15 +207,21 @@ void ScreenMirror::openStream(uint node, const QVariantMap &properties) {
 }
 
 void ScreenMirror::startPipeline(uint node, QSize size) {
-    const int fps = m_preset == 2 ? 60 : 30;
+    const int fps = mirrorVideoPreset(m_preset)->fps;
     const QString source = QString("pipewiresrc fd=%1 path=%2 do-timestamp=true keepalive-time=%3")
         .arg(m_pipeWireFd.fileDescriptor()).arg(node).arg(1000 / fps);
     const QSize videoSize = mirrorVideoSize(size, m_preset);
+    m_sourceNode = node;
+    m_sourceSize = size;
+    m_producedFrame = false;
+    m_useNvenc = !m_retrySoftware && qEnvironmentVariableIntValue("INKBRIDGE_SOFTWARE_VIDEO") != 1 &&
+        videoSize.width() >= 160 && videoSize.height() >= 64 && mirrorNvencAvailable();
     GError *error = nullptr;
-    m_pipeline = gst_parse_launch(mirrorPipelineDescription(source, videoSize, m_preset).toUtf8().constData(), &error);
+    m_pipeline = gst_parse_launch(mirrorPipelineDescription(source, videoSize, m_preset, m_useNvenc).toUtf8().constData(), &error);
     if (error || !m_pipeline) {
         const QString message = error ? QString::fromUtf8(error->message) : "Could not create the video encoder.";
         if (error) g_error_free(error);
+        if (retrySoftware()) return;
         fail(message);
         return;
     }
@@ -220,12 +231,28 @@ void ScreenMirror::startPipeline(uint node, QSize size) {
     gst_app_sink_set_callbacks(GST_APP_SINK(sink), &callbacks, this, nullptr);
     gst_object_unref(sink);
     if (gst_element_set_state(m_pipeline, GST_STATE_PLAYING) == GST_STATE_CHANGE_FAILURE) {
+        if (retrySoftware()) return;
         fail("Could not start monitor capture and H.264 encoding.");
         return;
     }
     m_pipelineTimer.start();
-    emit statusChanged(QString("Mirroring via USB: %1 x %2, up to %3 fps. Input and video use separate USB directions.")
-        .arg(videoSize.width()).arg(videoSize.height()).arg(fps));
+    emit statusChanged(QString("Mirroring via USB: %1 x %2, up to %3 fps (%4). Input and video use separate USB directions.")
+        .arg(videoSize.width()).arg(videoSize.height()).arg(fps).arg(m_useNvenc ? "NVIDIA NVENC" : "software OpenH264"));
+}
+
+bool ScreenMirror::retrySoftware() {
+    if (!m_useNvenc || m_producedFrame.load()) return false;
+    m_pipelineTimer.stop();
+    if (m_pipeline) {
+        gst_element_set_state(m_pipeline, GST_STATE_NULL);
+        gst_object_unref(m_pipeline);
+        m_pipeline = nullptr;
+    }
+    m_pipeWireFd = QDBusUnixFileDescriptor();
+    m_retrySoftware = true;
+    emit statusChanged("Hardware encoder initialization failed. Retrying with software OpenH264…");
+    openPipeWire(m_sourceNode, m_sourceSize);
+    return true;
 }
 
 GstFlowReturn ScreenMirror::newSample(GstAppSink *sink, gpointer data) {
@@ -242,7 +269,8 @@ GstFlowReturn ScreenMirror::newSample(GstAppSink *sink, gpointer data) {
     }
     GstMapInfo map{};
     if (gst_buffer_map(buffer, &map, GST_MAP_READ)) {
-        const qint64 pts = GST_BUFFER_PTS_IS_VALID(buffer) ? qint64(GST_BUFFER_PTS(buffer) / GST_USECOND) : 0;
+        const qint64 pts = mirrorPresentationTimeUs(sample);
+        mirror->m_producedFrame = true;
         mirror->m_channel->sendFrame(QByteArray(reinterpret_cast<const char *>(map.data), int(map.size)),
             width, height, pts, !GST_BUFFER_FLAG_IS_SET(buffer, GST_BUFFER_FLAG_DELTA_UNIT));
         gst_buffer_unmap(buffer, &map);
@@ -273,6 +301,7 @@ void ScreenMirror::checkPipeline() {
         g_free(debug);
     }
     gst_message_unref(message);
+    if (retrySoftware()) return;
     fail(text);
 }
 

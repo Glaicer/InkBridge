@@ -733,7 +733,7 @@ ApplicationWindow {
 
                                     ComboBox {
                                         Layout.fillWidth: true
-                                        model: ["720p / 30 fps", "1080p / 30 fps", "720p / 60 fps"]
+                                        model: ["720p / 30 fps", "1080p / 30 fps", "720p / 60 fps", "1080p / 60 fps", "1440p / 60 fps", "720p / 120 fps (experimental)", "1080p / 120 fps (NVENC, experimental)", "1440p / 120 fps (NVENC, experimental)"]
                                         currentIndex: backend.mirrorPreset
                                         enabled: !backend.isMirroring
                                         onActivated: backend.setMirrorPreset(currentIndex)

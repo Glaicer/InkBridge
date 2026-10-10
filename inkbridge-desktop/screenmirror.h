@@ -8,6 +8,7 @@
 #include <QDBusMessage>
 #include <QDBusUnixFileDescriptor>
 #include <gst/app/gstappsink.h>
+#include <atomic>
 
 class UsbVideoChannel;
 
@@ -36,6 +37,8 @@ private:
     enum class Request { Create, Select, Start };
     void request(Request kind);
     void openStream(uint node, const QVariantMap &properties);
+    void openPipeWire(uint node, QSize size);
+    bool retrySoftware();
     void startPipeline(uint node, QSize size);
     void fail(const QString &message);
     static GstFlowReturn newSample(GstAppSink *sink, gpointer data);
@@ -43,6 +46,11 @@ private:
     UsbVideoChannel *m_channel;
     bool m_active = false;
     int m_preset = 0;
+    bool m_useNvenc = false;
+    bool m_retrySoftware = false;
+    std::atomic<bool> m_producedFrame = false;
+    uint m_sourceNode = 0;
+    QSize m_sourceSize;
     QRect m_screen;
     Request m_request = Request::Create;
     QString m_requestPath;

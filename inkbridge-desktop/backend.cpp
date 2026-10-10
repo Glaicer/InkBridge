@@ -1,5 +1,6 @@
 #include "backend.h"
 #include "linux-adk.h"
+#include "videopipeline.h"
 #include <libusb-1.0/libusb.h>
 #include <iostream> // For std::cout if needed, though qDebug is preferred for Qt
 #include "protocol.h"  // For PenPacket struct
@@ -162,7 +163,7 @@ void Backend::toggleUsbMirror() {
 }
 
 void Backend::setMirrorPreset(int preset) {
-    if (isMirroring() || preset < 0 || preset > 2) return;
+    if (isMirroring() || !mirrorVideoPreset(preset)) return;
     m_mirrorPreset = preset;
     emit mirrorStateChanged();
 }
