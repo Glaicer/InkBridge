@@ -12,6 +12,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.hardware.usb.UsbAccessory
+import android.hardware.input.InputManager
 import android.hardware.usb.UsbManager
 import android.os.Build
 import android.os.Bundle
@@ -47,6 +48,15 @@ class MainActivity : ComponentActivity() {
     private var wakeLock: PowerManager.WakeLock? = null
     private var bluetoothAdapter: BluetoothAdapter? = null
     private var currentNightMode by mutableStateOf(AppCompatDelegate.MODE_NIGHT_YES)
+    private val penButtons = PenButtons(UsbStreamService::setEraserPressed, UsbStreamService::undo)
+    private lateinit var penShortcuts: XiaomiPenShortcuts
+    private lateinit var inputManager: InputManager
+    private var resumed = false
+    private val penDeviceListener = object : InputManager.InputDeviceListener {
+        override fun onInputDeviceAdded(deviceId: Int) {}
+        override fun onInputDeviceChanged(deviceId: Int) {}
+        override fun onInputDeviceRemoved(deviceId: Int) { penButtons.releaseDevice(deviceId) }
+    }
 
     // --- Broadcast Receivers ---
     private val bluetoothScanReceiver = object : BroadcastReceiver() {
@@ -126,6 +136,10 @@ class MainActivity : ComponentActivity() {
         wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "InkBridge::ActiveSession")
         usbManager = getSystemService(Context.USB_SERVICE) as UsbManager
         bluetoothAdapter = (getSystemService(BLUETOOTH_SERVICE) as BluetoothManager).adapter
+        penShortcuts = XiaomiPenShortcuts(this)
+        inputManager = getSystemService(Context.INPUT_SERVICE) as InputManager
+        inputManager.registerInputDeviceListener(penDeviceListener, null)
+        UsbStreamService.videoPlayer.onSessionChanged = { runOnUiThread { updatePenSession() } }
 
         // Register Receivers
         val filter = IntentFilter(ACTION_USB_PERMISSION).apply { addAction(UsbManager.ACTION_USB_ACCESSORY_DETACHED) }
@@ -143,6 +157,7 @@ class MainActivity : ComponentActivity() {
 
         UsbStreamService.onDisconnected = { message ->
             runOnUiThread {
+                updatePenSession()
                 if (!UsbStreamService.isConnected) viewModel.usbDisconnected(message)
             }
         }
@@ -212,6 +227,10 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        resumed = false
+        updatePenSession()
+        inputManager.unregisterInputDeviceListener(penDeviceListener)
+        UsbStreamService.videoPlayer.onSessionChanged = null
         super.onDestroy()
         UsbStreamService.onDisconnected = null
         try { unregisterReceiver(bluetoothScanReceiver) } catch (_: Exception) {}
@@ -221,11 +240,20 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        resumed = true
+        updatePenSession()
         if (viewModel.uiState.value.isConnected) hideSystemUI()
+    }
+
+    override fun onPause() {
+        resumed = false
+        updatePenSession()
+        super.onPause()
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
+        updatePenSession()
         if (hasFocus && viewModel.uiState.value.isConnected) hideSystemUI()
     }
 
@@ -321,9 +349,22 @@ class MainActivity : ComponentActivity() {
         BluetoothStreamService.startDiscovery(adapter)
     }
 
+    private fun updatePenSession() {
+        val state = UsbStreamService.videoPlayer.state
+        penButtons.enabled = resumed && hasWindowFocus() && UsbStreamService.isConnected &&
+            state.width > 0 && state.height > 0
+        penShortcuts.setActive(penButtons.enabled)
+    }
+
     @SuppressLint("RestrictedApi")
     override fun dispatchKeyEvent(event: KeyEvent?): Boolean {
-        val keyCode = event?.keyCode ?: return super.dispatchKeyEvent(event)
+        event ?: return super.dispatchKeyEvent(event)
+        val keyCode = event.keyCode
+        val device = event.device
+        if (penButtons.handle(keyCode, event.action, event.repeatCount, event.deviceId,
+                PenButtons.isXiaomiPen(device?.name, device?.vendorId ?: 0, device?.productId ?: 0))) {
+            return true
+        }
         if (keyCode == 285 || keyCode == 284 || keyCode == 286 ||
             keyCode == KeyEvent.KEYCODE_CAMERA || keyCode == KeyEvent.KEYCODE_FOCUS) {
             return true

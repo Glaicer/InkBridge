@@ -45,6 +45,16 @@ object UsbStreamService {
         }
     }
 
+    fun setEraserPressed(pressed: Boolean) {
+        currentListener?.setEraserPressed(pressed)
+    }
+
+    fun undo() {
+        if (!isStreamOpen || videoPlayer.state.width == 0) return
+        val control = UsbVideoProtocol.control(UsbVideoProtocol.UNDO)
+        ringBuffer.write(control, 0, control.size)
+    }
+
     /**
      * BLOCKING call to open the stream.
      * Call this from a background thread (Dispatchers.IO).

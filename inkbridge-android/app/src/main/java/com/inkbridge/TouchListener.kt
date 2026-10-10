@@ -16,6 +16,28 @@ class TouchListener(
 
     private val buffer = ByteBuffer.allocate(22).order(ByteOrder.LITTLE_ENDIAN)
     private val TAG = "InkBridgeTouch"
+    private val lastStylusPacket = ByteArray(22)
+    private var hasStylusPacket = false
+    private var hardwareButtonPressed = false
+    private var eraserPressed = false
+
+    fun setEraserPressed(pressed: Boolean) {
+        synchronized(buffer) {
+            if (eraserPressed == pressed) return
+            eraserPressed = pressed
+            if (!hasStylusPacket) return
+            val previous = lastStylusPacket[1].toInt() and 32.inv()
+            val action = if (previous == MotionEvent.ACTION_DOWN || previous == MotionEvent.ACTION_MOVE) {
+                MotionEvent.ACTION_MOVE
+            } else MotionEvent.ACTION_HOVER_MOVE
+            lastStylusPacket[1] = (if (pressed || hardwareButtonPressed) action or 32 else action).toByte()
+            try {
+                outputStream.write(lastStylusPacket, 0, 22)
+            } catch (error: Exception) {
+                Log.e(TAG, "Button write failed", error)
+            }
+        }
+    }
 
     override fun onTouch(v: View, event: MotionEvent): Boolean {
         if (event.actionMasked == MotionEvent.ACTION_DOWN) {
@@ -39,14 +61,16 @@ class TouchListener(
         val action = event.actionMasked
         val w = view.width.toFloat()
         val h = view.height.toFloat()
-        val isButtonPressed = (event.buttonState and MotionEvent.BUTTON_STYLUS_PRIMARY) != 0
-        val actionWithButton = if (isButtonPressed) action or 32 else action
+        val hardwareButton = (event.buttonState and MotionEvent.BUTTON_STYLUS_PRIMARY) != 0
+        val isStylus = toolType == MotionEvent.TOOL_TYPE_STYLUS || toolType == MotionEvent.TOOL_TYPE_ERASER
+        val actionWithButton = if (hardwareButton || (isStylus && eraserPressed)) action or 32 else action
 
         val historySize = event.historySize
         for (i in 0 until historySize) {
             sendSample(
                 toolType = toolType,
                 actionWithButton = actionWithButton,
+                hardwareButton = hardwareButton,
                 x = event.getHistoricalX(i),
                 y = event.getHistoricalY(i),
                 pressure = event.getHistoricalPressure(i),
@@ -60,6 +84,7 @@ class TouchListener(
         sendSample(
             toolType = toolType,
             actionWithButton = actionWithButton,
+            hardwareButton = hardwareButton,
             x = event.x,
             y = event.y,
             pressure = event.pressure,
@@ -75,6 +100,7 @@ class TouchListener(
     private fun sendSample(
         toolType: Int,
         actionWithButton: Int,
+        hardwareButton: Boolean,
         x: Float,
         y: Float,
         pressure: Float,
@@ -101,6 +127,14 @@ class TouchListener(
             buffer.putInt(pressureInt)
             buffer.putInt(tiltXDeg)
             buffer.putInt(tiltYDeg)
+            if (toolType == MotionEvent.TOOL_TYPE_STYLUS || toolType == MotionEvent.TOOL_TYPE_ERASER) {
+                val action = actionWithButton and 32.inv()
+                hasStylusPacket = action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_MOVE ||
+                    action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_HOVER_MOVE ||
+                    action == MotionEvent.ACTION_HOVER_ENTER
+                hardwareButtonPressed = hardwareButton
+                if (hasStylusPacket) buffer.array().copyInto(lastStylusPacket)
+            }
 
             try {
                 // EXPLICITLY pass length to prevent the stream from consuming the raw array reference blindly

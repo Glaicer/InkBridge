@@ -79,6 +79,8 @@ set(PROJECT_SOURCES
     linux-adk.h
     virtualstylus.cpp
     virtualstylus.h
+    virtualkeyboard.cpp
+    virtualkeyboard.h
     displayscreentranslator.cpp
     displayscreentranslator.h
     pressuretranslator.cpp
@@ -160,6 +162,10 @@ if(BUILD_TESTING)
     target_include_directories(usb_video_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     target_link_libraries(usb_video_tests PRIVATE ${QT_LIBS} PkgConfig::GSTREAMER)
     add_test(NAME usb_video COMMAND usb_video_tests)
+    add_executable(virtualkeyboard_tests tests/virtualkeyboard_tests.cpp virtualkeyboard.cpp)
+    target_include_directories(virtualkeyboard_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(virtualkeyboard_tests PRIVATE ${QT_LIBS})
+    add_test(NAME virtualkeyboard COMMAND virtualkeyboard_tests)
     add_executable(screenmirror_portal_tests tests/screenmirror_portal_tests.cpp screenmirror.cpp screenmirror.h usbvideochannel.cpp usbvideochannel.h videopipeline.cpp)
     target_include_directories(screenmirror_portal_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     target_link_libraries(screenmirror_portal_tests PRIVATE ${QT_LIBS} PkgConfig::GSTREAMER)

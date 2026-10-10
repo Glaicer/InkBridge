@@ -33,6 +33,9 @@ Backend::Backend(QObject *parent)
     m_videoChannel = new UsbVideoChannel(this);
     m_screenMirror = new ScreenMirror(m_videoChannel, this);
     connect(m_videoChannel, &UsbVideoChannel::tabletReadyChanged, this, &Backend::usbVideoReadyChanged);
+    connect(m_videoChannel, &UsbVideoChannel::undoRequested, this, [this] {
+        if (isMirroring() && usbVideoReady()) m_keyboard.undo();
+    });
     connect(m_videoChannel, &UsbVideoChannel::connectionChanged, this, [this] {
         emit usbVideoReadyChanged();
         if (!m_videoChannel->connected()) m_screenMirror->stop("USB disconnected. Screen sharing stopped.");

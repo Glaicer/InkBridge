@@ -1,6 +1,8 @@
 package com.inkbridge
 
 import android.content.Context
+import android.Manifest
+import android.content.pm.PackageManager
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -13,6 +15,7 @@ import androidx.compose.material.icons.filled.Cable
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.TouchApp
 import androidx.compose.material.icons.filled.Usb
@@ -53,6 +56,8 @@ fun DashboardScreen(
     var showWifiDialog by remember { mutableStateOf(false) }
     var showTutorial by remember { mutableStateOf(prefs.getBoolean("first_launch", true)) }
     var isStylusOnly by remember { mutableStateOf(prefs.getBoolean("stylus_only", false)) }
+    var showPenSettings by remember { mutableStateOf(false) }
+    var penShortcutsEnabled by remember { mutableStateOf(prefs.getBoolean(XiaomiPenShortcuts.ENABLED_PREF, false)) }
 
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Box(modifier = Modifier.fillMaxSize()) {
@@ -77,6 +82,14 @@ fun DashboardScreen(
                         tint = if (isStylusOnly) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f),
                         modifier = Modifier.size(32.dp)
                     )
+                }
+
+                if (XiaomiPenShortcuts.supported) {
+                    IconButton(onClick = { showPenSettings = true }) {
+                        Icon(Icons.Default.Keyboard, "Xiaomi pen buttons",
+                            tint = if (penShortcutsEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f),
+                            modifier = Modifier.size(32.dp))
+                    }
                 }
 
                 // Help / Tutorial Button
@@ -180,6 +193,32 @@ fun DashboardScreen(
     }
 
     // --- DIALOGS ---
+
+    if (showPenSettings) {
+        AlertDialog(
+            onDismissRequest = { showPenSettings = false },
+            title = { Text("Xiaomi Smart Pen buttons") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("During USB mirroring: hold the notes button for the eraser; press the screenshot button to Undo in the focused desktop application.")
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Suppress Xiaomi pen shortcuts", modifier = Modifier.weight(1f))
+                        Switch(checked = penShortcutsEnabled, onCheckedChange = {
+                            penShortcutsEnabled = it
+                            prefs.edit().putBoolean(XiaomiPenShortcuts.ENABLED_PREF, it).apply()
+                        })
+                    }
+                    Text("Optional workaround: temporarily sets Xiaomi's global game-mode flag while mirroring in the foreground. This can affect power, notifications and gestures. The original value is restored on leaving or disconnecting; after a crash, reopen InkBridge to restore it.")
+                    if (context.checkSelfPermission(Manifest.permission.WRITE_SECURE_SETTINGS) != PackageManager.PERMISSION_GRANTED) {
+                        Text("One-time setup from a computer with USB debugging enabled:")
+                        Text("adb shell pm grant com.inkbridge android.permission.WRITE_SECURE_SETTINGS",
+                            style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { showPenSettings = false }) { Text("Done") } }
+        )
+    }
 
     if (showTutorial) {
         OnboardingTutorialDialog(

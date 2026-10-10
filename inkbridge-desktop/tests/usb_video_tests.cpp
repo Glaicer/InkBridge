@@ -69,6 +69,28 @@ static void testChannel() {
     require(!channel.acceptControl(pen) && pen.pressure == 3072, "pen and pressure are not interpreted as control messages");
 }
 
+static void testUndoControl() {
+    UsbVideoChannel channel;
+    int undos = 0;
+    QObject::connect(&channel, &UsbVideoChannel::undoRequested, [&undos] { ++undos; });
+    PenPacket undo{};
+    undo.toolType = 127;
+    undo.action = UsbVideoChannel::Undo;
+    require(channel.acceptControl(undo) && undos == 0, "disconnected tablet cannot request Undo");
+    channel.setConnected(true);
+    require(channel.acceptControl(undo) && undos == 0, "Undo requires the tablet handshake");
+    ready(channel);
+    require(channel.acceptControl(undo) && undos == 1, "one reserved Undo packet emits one shortcut request");
+    undo.pressure = 4096;
+    require(channel.acceptControl(undo) && undos == 1, "malformed control fields do not inject a shortcut");
+    undo.toolType = 2;
+    require(!channel.acceptControl(undo) && undos == 1, "ordinary pen cancellation is not Undo");
+    undo.toolType = 127;
+    undo.pressure = 0;
+    channel.setConnected(false);
+    require(channel.acceptControl(undo) && undos == 1, "disconnect disables queued shortcut input");
+}
+
 static void testEncoder(bool useNvenc = false) {
     require(mirrorVideoSize(QSize(3840, 2160), 0) == QSize(1280, 720), "720p bounds");
     require(mirrorVideoSize(QSize(2560, 1600), 1) == QSize(1728, 1080), "preserve monitor aspect ratio");
@@ -187,6 +209,7 @@ static void testConversionSize() {
 int main(int argc, char **argv) {
     QCoreApplication app(argc, argv);
     testChannel();
+    testUndoControl();
     testEncoder();
     testConversionSize();
     testKeyFrameRequest(false);

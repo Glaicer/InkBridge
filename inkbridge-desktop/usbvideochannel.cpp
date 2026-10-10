@@ -48,6 +48,9 @@ bool UsbVideoChannel::acceptControl(const PenPacket &packet) {
             m_packets.clear();
         }
         emit keyFrameRequested();
+    } else if (packet.action == Undo && packet.x == 0 && packet.y == 0 && packet.pressure == 0 &&
+               packet.tiltX == 0 && packet.tiltY == 0 && tabletReady()) {
+        emit undoRequested();
     }
     return true;
 }

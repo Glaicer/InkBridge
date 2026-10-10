@@ -128,13 +128,15 @@ The presets bound the video to 1280x720 or 1920x1080 at 30/60/120 fps, or 2560x1
 
 Xiaomi Pad 5 with Xiaomi Smart Pen supports pressure sensitivity. Existing pressure, eraser/button, and tilt packets remain unchanged; video does not synthesize pressure or add missing hardware capabilities. Verify variable-width strokes with a pressure-sensitive brush on the actual tablet.
 
+During USB mirroring, Xiaomi Smart Pen's notes button holds the virtual eraser; its screenshot/selection button sends one Undo (`Ctrl+Z`) per press to the focused desktop application. Some Xiaomi firmware intercepts these keys for system menus. An optional, default-off **Suppress Xiaomi pen shortcuts** setting can temporarily bypass those menus while mirroring in foreground InkBridge. It uses Xiaomi's shared game-mode flag and needs an explicit one-time ADB secure-settings grant; read the [setup, side effects and recovery instructions](docs/usb-screen-mirroring.md#xiaomi-smart-pen-buttons) before enabling it. Both updated builds are required for Undo. Ordinary mirroring and pen input still need no ADB permission.
+
 Screen capture uses the desktop ScreenCast portal and PipeWire, including on Wayland. A working portal backend is required. Sharing is explicitly approved by the user, limited to one existing monitor, and stops on USB disconnection or revoked permission. This is mirroring, not an additional virtual monitor. Wi-Fi and Bluetooth remain input-only.
 
 #### Automated checks
 ```bash
 ctest --test-dir inkbridge-desktop/build --output-on-failure
 cd inkbridge-android
-./gradlew :app:testDebugUnitTest --tests com.inkbridge.UsbVideoProtocolTest --tests com.inkbridge.VideoTransformTest --console=plain
+./gradlew :app:testDebugUnitTest --tests com.inkbridge.PenButtonsTest --tests com.inkbridge.PenShortcutLeaseTest --tests com.inkbridge.UsbVideoProtocolTest --tests com.inkbridge.VideoTransformTest --console=plain
 ```
 The desktop checks exercise the real OpenH264 pipeline for all presets and NVENC when available, normalized encoder timestamps, requested keyframes with repeated decoder configuration, capability negotiation, wire framing, queue recovery, and isolated D-Bus portal permission/cancellation handling. Android unit tests check the same framing fixture, fragmented USB reads, unsupported accessory `available()` calls, input bounds, AVC configuration, aspect-ratio fitting, focal-point zoom, pan limits, and geometry resets. Device-side zoom/input checks are in `UsbMirrorZoomTest`. Live video, pen alignment, pressure, and stop/reconnect behavior were verified on a Xiaomi Pad 5; the user also confirmed tablet-local zoom, panning, and drawing. Hardware checks and limitations are listed in the documentation below.
 

@@ -25,6 +25,7 @@ object UsbVideoProtocol {
     const val KEY_FRAME = 1
     const val STOPPED = 2
     const val MAX_PAYLOAD = 4 * 1024 * 1024
+    const val UNDO = 3
 
     fun control(action: Int): ByteArray = ByteBuffer.allocate(22)
         .order(ByteOrder.LITTLE_ENDIAN)

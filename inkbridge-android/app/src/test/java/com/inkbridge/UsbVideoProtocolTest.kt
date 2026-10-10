@@ -106,6 +106,10 @@ class UsbVideoProtocolTest {
         assertEquals(2, UsbVideoProtocol.control(2)[1].toInt())
     }
 
+    @Test fun undoControlCannotBeMistakenForPenInput() {
+        assertArrayEquals(byteArrayOf(127, 3) + ByteArray(20), UsbVideoProtocol.control(UsbVideoProtocol.UNDO))
+    }
+
     @Test fun fitsXiaomiPad5WithoutStretching() {
         assertEquals(VideoViewport(2560, 1440), VideoViewport.fit(2560, 1600, 1920, 1080))
         assertEquals(VideoViewport(1600, 900), VideoViewport.fit(1600, 2560, 1920, 1080))

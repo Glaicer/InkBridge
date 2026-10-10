@@ -17,6 +17,7 @@ public:
     static constexpr int MaxPayload = 4 * 1024 * 1024;
     static constexpr quint32 KeyFrame = 1;
     static constexpr quint32 Stopped = 2;
+    static constexpr quint8 Undo = 3;
 
     explicit UsbVideoChannel(QObject *parent = nullptr);
     void setConnected(bool connected);
@@ -33,6 +34,7 @@ signals:
     void connectionChanged();
     void tabletReadyChanged();
     void keyFrameRequested();
+    void undoRequested();
 
 private:
     QByteArray packet(const QByteArray &payload, int width, int height, qint64 pts, quint32 flags);

@@ -16,6 +16,7 @@
 #include <libusb-1.0/libusb.h>
 #include "wifidirectserver.h"
 #include "virtualstylus.h"
+#include "virtualkeyboard.h"
 #include "accessory.h"
 #include "displayscreentranslator.h"
 #include "pressuretranslator.h"
@@ -102,6 +103,7 @@ signals:
 
 private:
     VirtualStylus *m_stylus;
+    VirtualKeyboard m_keyboard;
     DisplayScreenTranslator *m_displayTranslator;
     PressureTranslator *m_pressureTranslator;
     WifiDirectServer *m_wifiDirectServer;

@@ -26,6 +26,7 @@ class UsbVideoPlayer(private val sendControl: (Int) -> Unit) {
     @Volatile var state = UsbMirrorState()
         private set
     @Volatile var onStateChanged: ((UsbMirrorState) -> Unit)? = null
+    @Volatile var onSessionChanged: ((UsbMirrorState) -> Unit)? = null
 
     @Synchronized
     fun start() {
@@ -112,6 +113,7 @@ class UsbVideoPlayer(private val sendControl: (Int) -> Unit) {
             state = value
         }
         onStateChanged?.invoke(value)
+        onSessionChanged?.invoke(value)
     }
 
     private fun release(codec: MediaCodec?) {

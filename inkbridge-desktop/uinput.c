@@ -107,6 +107,30 @@ int init_uinput_stylus(const char* name, Error* err)
     return device;
 }
 
+int init_uinput_keyboard(const char* name, Error* err)
+{
+    int fd = open("/dev/uinput", O_WRONLY | O_NONBLOCK | O_CLOEXEC);
+    if (fd < 0) {
+        fill_error(err, 101, "error: failed to open /dev/uinput for shortcuts");
+        return -1;
+    }
+    if (ioctl(fd, UI_SET_EVBIT, EV_SYN) < 0 ||
+        ioctl(fd, UI_SET_EVBIT, EV_KEY) < 0 ||
+        ioctl(fd, UI_SET_KEYBIT, KEY_LEFTCTRL) < 0 ||
+        ioctl(fd, UI_SET_KEYBIT, KEY_Z) < 0) {
+        fill_error(err, 1, "error: configure shortcut keys");
+        close(fd);
+        return -1;
+    }
+    setup(fd, name, err);
+    if (err->code || ioctl(fd, UI_DEV_CREATE) < 0) {
+        if (!err->code) fill_error(err, 1, "error: create shortcut keyboard");
+        close(fd);
+        return -1;
+    }
+    return fd;
+}
+
 void destroy_uinput_device(int fd)
 {
     ioctl(fd, UI_DEV_DESTROY);

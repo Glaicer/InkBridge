@@ -19,6 +19,7 @@ Controls reuse the 22-byte pen packet layout. `toolType = 127` is reserved; cont
 |---|---:|---:|---|
 | 1 | 1 | 0 | Video reader/surface ready; protocol version 1 |
 | 2 | 0 | 0 | Discard pending dependent frames and request a fresh IDR |
+| 3 | 0 | 0 | Undo (`Ctrl+Z`), accepted only from a ready tablet and injected only while mirroring |
 
 The normal pen packet bytes and pressure scaling are unchanged.
 
@@ -53,6 +54,34 @@ Zoom affects only the tablet, not desktop capture or monitor mapping. Changing s
 When the portal supplies monitor position and size, the desktop maps input to that monitor. Those values are compositor/logical coordinates, not necessarily encoded pixel dimensions. If either is unavailable, the user must select the same monitor in Map to Screen and the sharing dialog. Unrecognized returned geometry stops sharing rather than silently sending input to a different screen.
 
 Stop Sharing, rejected/revoked capture permission and decoder errors leave pen input available. USB disconnection stops capture, drains/closes the USB streams and releases the decoder. Reconnection negotiates support again and requires a new sharing session.
+
+## Xiaomi Smart Pen buttons
+
+During active USB mirroring in foreground InkBridge, the Xiaomi Smart Pen notes button (`KEYCODE_PAGE_DOWN`, 93) holds the desktop's virtual eraser; releasing it restores the pen. The screenshot/selection button (`KEYCODE_PAGE_UP`, 92) sends one `Ctrl+Z` shortcut per press to the focused desktop application. Keep Krita focused to undo in Krita. Key auto-repeat does not repeat Undo, and page keys from ordinary keyboards are not intercepted. Leaving InkBridge, stopping video, removing the pen or disconnecting USB clears held button state. The eraser uses the existing pen action bit, with unchanged coordinates, pressure and tilt; a stationary pen's last sample is replayed on button transitions so no movement is needed to change tools.
+
+On the tested Xiaomi Pad 5 (Android 13 / HyperOS 1.0, V816.0.6.0.TKXMIXM), Xiaomi handles these buttons before ordinary app key handling and opens Mi Canvas or the screenshot overlay. A local physical-button diagnostic confirmed that setting `Settings.Secure.gb_boosting` to `1` suppresses both menus while both key-down and key-up still reach InkBridge. This is Xiaomi's **global game-mode flag**, not a dedicated pen setting: it can also affect power, notifications, gestures and display policies. The behavior is firmware-specific and is not guaranteed on other Xiaomi versions.
+
+The optional workaround is **off by default**. To opt in:
+
+1. Install both updated builds, connect the tablet with USB debugging enabled, and record the original value:
+   ```bash
+   adb shell settings get secure gb_boosting
+   ```
+2. Explicitly grant the broad secure-settings permission once:
+   ```bash
+   adb shell pm grant com.inkbridge android.permission.WRITE_SECURE_SETTINGS
+   ```
+3. In the Android dashboard, open **Xiaomi pen buttons** (keyboard icon) and enable **Suppress Xiaomi pen shortcuts**. Start USB mirroring and keep InkBridge in the foreground.
+
+InkBridge saves the original value before writing `1`, restores it on normal stop/pause/disconnection, and preserves an already-enabled external game mode. A different externally-written value is not overwritten on restore. If restoring fails, the saved value is retained for retry. After a crash or force-stop, immediate cleanup is not guaranteed: **reopen InkBridge to restore the saved value**. Avoid combining this workaround with another application managing the same game-mode flag. USB debugging is only needed for setup/recovery, not for button or video transport during normal use.
+
+To remove access, stop sharing or leave InkBridge first, verify the original value has returned, turn off the workaround, then run:
+
+```bash
+adb shell pm revoke com.inkbridge android.permission.WRITE_SECURE_SETTINGS
+```
+
+Do not revoke the permission while an owned setting still needs restoration. Manual recovery should restore the value recorded before opting in (or delete the setting if it was originally absent), not blindly force a particular value. Without this opt-in or permission, InkBridge does not change the Xiaomi flag; button mappings still work if firmware delivers the keys, but system menus may interrupt them.
 
 ## Dependencies
 
@@ -113,15 +142,17 @@ Use these checks when validating another device, compositor, or build:
 7. Unplug during drawing/video, then reconnect. Verify that capture stops, Android returns to its connection screen, no threads retain a stale session, and sharing can be approved again.
 8. Close the desktop while streaming and disconnect from Android. Check that capture permission, video threads and codec resources are released. Reopen both apps and connect again.
 9. Measure perceived pen-to-image delay on the actual devices; do not infer latency from successful compilation or encoder unit tests.
+10. With the optional Xiaomi workaround enabled, verify the original `gb_boosting` value is restored after Stop Sharing, Home/app switching and unplugging USB. Hold the notes button while drawing, release it, and check eraser/pen transitions, pressure and zoomed alignment in Krita. Press and hold the screenshot button: it must undo only once. Confirm normal keyboard Page Up/Page Down still work. Repeat after reconnecting and after opening InkBridge following a forced stop; no held eraser state should survive.
 
-Automated protocol, encoder and isolated D-Bus portal checks are invoked with CTest. Android protocol/geometry/zoom checks use the existing JUnit dependency. `VideoTransformTest` checks focal-point preservation, simultaneous zoom/pan, bounds, and geometry resets. `UsbMirrorZoomTest` exercises Android's actual event dispatch and 22-byte pen packets after transformations, including batched pressure/tilt samples, hover/eraser input, mixed finger/pen contacts, letterbox rejection, and stop-sharing behavior. These checks do not prove USB throughput, MediaCodec behavior or drawing latency on the physical tablet.
+
+Automated protocol, encoder, shortcut-keyboard and isolated D-Bus portal checks are invoked with CTest. Android protocol/geometry/zoom and button/setting-lease checks use the existing JUnit dependency. `PenButtonsTest` covers source filtering, press/release, auto-repeat and session/device resets; `PenShortcutLeaseTest` covers original-value preservation, crash recovery, failed writes/restores and unrelated external changes. `PenButtonInputTest` checks real Android MotionEvents and unchanged 22-byte sensor/coordinate bytes when switching the eraser, including stationary pen, lift and proximity exit. `VideoTransformTest` checks focal-point preservation, simultaneous zoom/pan, bounds, and geometry resets. `UsbMirrorZoomTest` exercises Android's actual event dispatch and 22-byte pen packets after transformations, including batched pressure/tilt samples, hover/eraser input, mixed finger/pen contacts, letterbox rejection, and stop-sharing behavior. These checks do not prove USB throughput, MediaCodec behavior or drawing latency on the physical tablet.
 
 With a connected device that permits test APK installation:
 
 ```bash
 cd inkbridge-android
 ./gradlew :app:connectedDebugAndroidTest \
-  -Pandroid.testInstrumentationRunnerArguments.class=com.inkbridge.UsbMirrorZoomTest,com.inkbridge.UsbMirrorViewTest \
+  -Pandroid.testInstrumentationRunnerArguments.class=com.inkbridge.PenButtonInputTest,com.inkbridge.UsbMirrorZoomTest,com.inkbridge.UsbMirrorViewTest \
   --console=plain
 ```
 
